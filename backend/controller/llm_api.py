@@ -34,35 +34,79 @@ async def list_models(request):
     """
     try:
         log.info("Received list_models request")
+    api_type = request.headers.get('Gemini-Api-Type', 'public')  # 'public' or 'vertex'
+    gemini_api_key = request.headers.get('Gemini-Api-Key', '')
+    vertex_project = request.headers.get('Vertex-Project', '')
+    vertex_region = request.headers.get('Vertex-Region', '')
+    vertex_service_account_path = request.headers.get('Vertex-Service-Account-Path', None)
+        # fallback to OpenAI logic if not Gemini
         openai_api_key = request.headers.get('Openai-Api-Key') or ""
         openai_base_url = request.headers.get('Openai-Base-Url') or LLM_DEFAULT_BASE_URL
 
-        request_url = f"{openai_base_url}/models"
-        
-        # Check if this is LMStudio and adjust headers accordingly
-        is_lmstudio = is_lmstudio_url(openai_base_url)
-        
-        headers = {}
-        if not is_lmstudio or (is_lmstudio and openai_api_key):
-            # Include Authorization header for OpenAI API or LMStudio with API key
-            headers["Authorization"] = f"Bearer {openai_api_key}"
-        
-        response = requests.get(request_url, headers=headers)
         llm_config = []
-        if response.status_code == 200:
-            models = response.json()
-            for model in models['data']:
+        if api_type == 'vertex':
+            # Use Vertex AI endpoint and service account
+            from ..utils.vertex_auth import get_vertex_access_token
+            access_token = get_vertex_access_token(vertex_service_account_path)
+            # Vertex endpoint for Gemini models
+            endpoint = f"https://{vertex_region}-aiplatform.googleapis.com/v1/projects/{vertex_project}/locations/{vertex_region}/publishers/google/models"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            response = requests.get(endpoint, headers=headers)
+            if response.status_code == 200:
+                models = response.json()
+                # Vertex returns 'models' list
+                for model in models.get('models', []):
+                    model_id = model['name'].split('/')[-1]
+                    llm_config.append({
+                        "label": model_id,
+                        "name": model_id,
+                        "image_enable": True
+                    })
+                # Always add Gemini 2.0-flash as a cheaper option
                 llm_config.append({
-                    "label": model['id'],
-                    "name": model['id'],
+                    "label": "gemini-2.0-flash",
+                    "name": "gemini-2.0-flash",
                     "image_enable": True
                 })
-        
+        elif api_type == 'public':
+            # Use public Gemini endpoint
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
+            params = {"key": gemini_api_key}
+            response = requests.get(endpoint, params=params)
+            if response.status_code == 200:
+                models = response.json()
+                for model in models.get('models', []):
+                    llm_config.append({
+                        "label": model['name'],
+                        "name": model['name'],
+                        "image_enable": True
+                    })
+                # Always add Gemini 2.0-flash as a cheaper option
+                llm_config.append({
+                    "label": "gemini-2.0-flash",
+                    "name": "gemini-2.0-flash",
+                    "image_enable": True
+                })
+        else:
+            # fallback to OpenAI/LMStudio
+            request_url = f"{openai_base_url}/models"
+            is_lmstudio = is_lmstudio_url(openai_base_url)
+            headers = {}
+            if not is_lmstudio or (is_lmstudio and openai_api_key):
+                headers["Authorization"] = f"Bearer {openai_api_key}"
+            response = requests.get(request_url, headers=headers)
+            if response.status_code == 200:
+                models = response.json()
+                for model in models['data']:
+                    llm_config.append({
+                        "label": model['id'],
+                        "name": model['id'],
+                        "image_enable": True
+                    })
+
         return web.json_response({
-                "models": llm_config
-            }
-        )
-        
+            "models": llm_config
+        })
     except Exception as e:
         log.error(f"Error in list_models: {str(e)}")
         return web.json_response({

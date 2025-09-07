@@ -35,6 +35,22 @@ interface ApiKeyModalProps {
 const BASE_URL = config.apiBaseUrl
 
 export function ApiKeyModal({ isOpen, onClose, onSave, initialApiKey = '', onConfigurationUpdated }: ApiKeyModalProps) {
+    // Load Gemini config from localStorage on mount
+    useEffect(() => {
+        const savedType = localStorage.getItem('geminiApiType') as 'public' | 'vertex';
+        const savedKey = localStorage.getItem('geminiApiKey') || '';
+        const savedProject = localStorage.getItem('vertexProject') || '';
+        const savedRegion = localStorage.getItem('vertexRegion') || 'uswest-1';
+        if (savedType) setGeminiApiType(savedType);
+        if (savedKey) setGeminiApiKey(savedKey);
+        if (savedProject) setVertexProject(savedProject);
+        if (savedRegion) setVertexRegion(savedRegion);
+    }, []);
+    // Gemini configuration
+    const [geminiApiType, setGeminiApiType] = useState<'public' | 'vertex'>('public');
+    const [geminiApiKey, setGeminiApiKey] = useState('');
+    const [vertexProject, setVertexProject] = useState('');
+    const [vertexRegion, setVertexRegion] = useState('uswest-1');
     const [apiKey, setApiKey] = useState(initialApiKey);
     const [email, setEmail] = useState('');
     const [isEmailValid, setIsEmailValid] = useState(false);
@@ -170,28 +186,30 @@ export function ApiKeyModal({ isOpen, onClose, onSave, initialApiKey = '', onCon
     const handleSave = () => {
         // Save the main API key
         onSave(apiKey);
-        
-        // Check if OpenAI configuration has changed
+        // Save Gemini config
+        localStorage.setItem('geminiApiType', geminiApiType);
+        if (geminiApiType === 'public') {
+            localStorage.setItem('geminiApiKey', geminiApiKey);
+            localStorage.removeItem('vertexProject');
+            localStorage.removeItem('vertexRegion');
+        } else {
+            localStorage.setItem('vertexProject', vertexProject);
+            localStorage.setItem('vertexRegion', vertexRegion);
+            localStorage.removeItem('geminiApiKey');
+        }
+        // OpenAI config
         const previousOpenaiApiKey = localStorage.getItem('openaiApiKey') || '';
         const previousOpenaiBaseUrl = localStorage.getItem('openaiBaseUrl') || 'https://api.openai.com/v1';
         const hasOpenaiConfigChanged = openaiApiKey.trim() !== previousOpenaiApiKey || openaiBaseUrl !== previousOpenaiBaseUrl;
-        
-        // Always persist base URL (needed for LMStudio which may not require API key)
         localStorage.setItem('openaiBaseUrl', openaiBaseUrl);
-        
-        // Save or clear OpenAI API key in localStorage
         if (openaiApiKey.trim()) {
             localStorage.setItem('openaiApiKey', openaiApiKey);
         } else {
-            // If the OpenAI API key is empty, remove only the key and keep base URL
             localStorage.removeItem('openaiApiKey');
         }
-        
-        // Call configuration updated callback if OpenAI config has changed
         if (hasOpenaiConfigChanged && onConfigurationUpdated) {
             onConfigurationUpdated();
         }
-        
         onClose();
     };
 
@@ -270,6 +288,69 @@ export function ApiKeyModal({ isOpen, onClose, onSave, initialApiKey = '', onCon
                             </path>
                         </svg>
                     </StartLink>
+                    {/* Gemini Configuration */}
+                    <CollapsibleCard 
+                        title={<h3 className="text-sm text-gray-900 dark:text-white font-medium">Gemini Configuration (Public / Vertex AI)</h3>}
+                        className='mb-4'
+                    >
+                        <div className="mb-4">
+                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Gemini API Type</label>
+                            <select
+                                value={geminiApiType}
+                                onChange={e => setGeminiApiType(e.target.value as 'public' | 'vertex')}
+                                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                            >
+                                <option value="public">Public Gemini API</option>
+                                <option value="vertex">Vertex AI (Google Cloud)</option>
+                            </select>
+                        </div>
+                        {geminiApiType === 'public' && (
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Gemini API Key</label>
+                                <input
+                                    type="password"
+                                    value={geminiApiKey}
+                                    onChange={e => setGeminiApiKey(e.target.value)}
+                                    placeholder="Enter your Gemini API key"
+                                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
+                        )}
+                        {geminiApiType === 'vertex' && (
+                            <>
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Vertex Project ID</label>
+                                <input
+                                    type="text"
+                                    value={vertexProject}
+                                    onChange={e => setVertexProject(e.target.value)}
+                                    placeholder="Enter your GCP Project ID"
+                                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Vertex Region</label>
+                                <input
+                                    type="text"
+                                    value={vertexRegion}
+                                    onChange={e => setVertexRegion(e.target.value)}
+                                    placeholder="uswest-1, us-central1, etc."
+                                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Service Account JSON Path</label>
+                                <input
+                                    type="text"
+                                    value={vertexServiceAccountPath}
+                                    onChange={e => setVertexServiceAccountPath(e.target.value)}
+                                    placeholder="Path to service account JSON file"
+                                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                />
+                            </div>
+                            </>
+                        )}
+                    </CollapsibleCard>
                 </div>
                 
                 {/* LLM Configuration */}
@@ -346,58 +427,86 @@ export function ApiKeyModal({ isOpen, onClose, onSave, initialApiKey = '', onCon
                         <div className="flex items-center mb-2">
                             <button
                                 onClick={handleVerifyOpenAiKey}
-                                disabled={verifyingKey}
-                                className={`px-4 py-2 rounded-lg font-medium text-xs transition-colors ${
-                                    verifyingKey
-                                        ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                                        : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white'
-                                }`}
-                            >
-                                {verifyingKey ? (
-                                    <span className="flex items-center text-xs">
-                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        Verifying...
-                                    </span>
-                                ) : 'Verify'}
-                            </button>
-                        </div>
-                        
-                        {/* Verification Result */}
-                        {verificationResult && (
-                            <div className={`text-xs p-2 rounded-md ${
-                                verificationResult.success 
-                                    ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' 
-                                    : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                            }`}>
-                                {verificationResult.message}
-                            </div>
-                        )}
-                    </div>
-                </CollapsibleCard>
-                {/* Action Buttons */}
-                <div className="flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        className="px-5 py-2.5 text-gray-700 bg-white dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 
-                        rounded-lg font-medium transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 
-                        text-white rounded-lg font-medium transition-colors"
-                    >
-                        Save
-                    </button>
-                </div>
-            </div>
-            <Modal open={modalOepn} onClose={() => setModalOpen(false)}>
-                <p>{modalContent}</p>
-            </Modal>
-        </div>
-    );
-} 
+                                return (
+                                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-10 flex items-center justify-center">
+                                        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 w-[480px] max-h-[80vh] shadow-2xl overflow-y-auto">
+                                            <h2 className="text-xl text-gray-900 dark:text-white font-semibold mb-6">Set API Key</h2>
+                                            {/* ...existing email and copilot API key code... */}
+                                            {/* Gemini Configuration */}
+                                            <CollapsibleCard 
+                                                title={<h3 className="text-sm text-gray-900 dark:text-white font-medium">Gemini Configuration (Public / Vertex AI)</h3>}
+                                                className='mb-4'
+                                            >
+                                                <div className="mb-4">
+                                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Gemini API Type</label>
+                                                    <select
+                                                        value={geminiApiType}
+                                                        onChange={e => setGeminiApiType(e.target.value as 'public' | 'vertex')}
+                                                        className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    >
+                                                        <option value="public">Public Gemini API</option>
+                                                        <option value="vertex">Vertex AI (Google Cloud)</option>
+                                                    </select>
+                                                </div>
+                                                {geminiApiType === 'public' && (
+                                                    <div className="mb-4">
+                                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Gemini API Key</label>
+                                                        <input
+                                                            type="password"
+                                                            value={geminiApiKey}
+                                                            onChange={e => setGeminiApiKey(e.target.value)}
+                                                            placeholder="Enter your Gemini API key"
+                                                            className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {geminiApiType === 'vertex' && (
+                                                    <>
+                                                    <div className="mb-4">
+                                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Vertex Project ID</label>
+                                                        <input
+                                                            type="text"
+                                                            value={vertexProject}
+                                                            onChange={e => setVertexProject(e.target.value)}
+                                                            placeholder="Enter your GCP Project ID"
+                                                            className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                        />
+                                                    </div>
+                                                    <div className="mb-4">
+                                                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Vertex Region</label>
+                                                        <input
+                                                            type="text"
+                                                            value={vertexRegion}
+                                                            onChange={e => setVertexRegion(e.target.value)}
+                                                            placeholder="uswest-1, us-central1, etc."
+                                                            className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                        />
+                                                    </div>
+                                                    </>
+                                                )}
+                                            </CollapsibleCard>
+                                            {/* ...existing LLM Configuration (OpenAI / LMStudio / Custom) code... */}
+                                            {/* ...existing action buttons and modal code... */}
+                                        </div>
+                                    </div>
+                                );
+                                                        onChange={e => setVertexProject(e.target.value)}
+                                                        placeholder="Enter your GCP Project ID"
+                                                        className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    />
+                                                </div>
+                                                <div className="mb-4">
+                                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Vertex Region</label>
+                                                    <input
+                                                        type="text"
+                                                        value={vertexRegion}
+                                                        onChange={e => setVertexRegion(e.target.value)}
+                                                        placeholder="uswest-1, us-central1, etc."
+                                                        className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    />
+                                                </div>
+                                                </>
+                                            )}
+                                        </CollapsibleCard>
+                                        {/* LLM Configuration (OpenAI / LMStudio / Custom) */}
+                                        ...existing code...
