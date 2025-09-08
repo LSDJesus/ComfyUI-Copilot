@@ -11,7 +11,7 @@ from collections import defaultdict
 from sqlalchemy.orm import identity
 
 from ..utils.globals import set_language
-from ..utils.auth_utils import extract_and_store_api_key
+## Removed import of extract_and_store_api_key (no longer exists)
 import server
 from aiohttp import web
 import base64
@@ -205,8 +205,7 @@ def processMessagesWithCheckpoints(messages):
 async def invoke_chat(request):
     log.info("Received invoke_chat request")
     
-    # Extract and store API key from Authorization header
-    extract_and_store_api_key(request)
+    # API key extraction logic removed (handled by config)
     
     req_json = await request.json()
     log.info("Request JSON:", req_json)
@@ -482,7 +481,7 @@ async def invoke_debug(request):
     log.info("Received debug-agent request")
     
     # Extract and store API key from Authorization header
-    extract_and_store_api_key(request)
+    # API key extraction logic removed (handled by config)
     
     req_json = await request.json()
     

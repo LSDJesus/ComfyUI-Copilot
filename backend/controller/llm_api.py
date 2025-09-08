@@ -34,84 +34,94 @@ async def list_models(request):
     """
     try:
         log.info("Received list_models request")
-    api_type = request.headers.get('Gemini-Api-Type', 'public')  # 'public' or 'vertex'
-    gemini_api_key = request.headers.get('Gemini-Api-Key', '')
-    vertex_project = request.headers.get('Vertex-Project', '')
-    vertex_region = request.headers.get('Vertex-Region', '')
-    vertex_service_account_path = request.headers.get('Vertex-Service-Account-Path', None)
-        # fallback to OpenAI logic if not Gemini
-        openai_api_key = request.headers.get('Openai-Api-Key') or ""
-        openai_base_url = request.headers.get('Openai-Base-Url') or LLM_DEFAULT_BASE_URL
+        # Gather config from headers
+        config = {
+            'provider': request.headers.get('Provider', 'gemini'),
+            'model': request.headers.get('Model', 'gemini-2.5-pro'),
+            'vertexServiceAccountPath': request.headers.get('Vertex-Service-Account-Path', ''),
+            'vertexProject': request.headers.get('Vertex-Project', ''),
+            'vertexRegion': request.headers.get('Vertex-Region', ''),
+            'geminiApiKey': request.headers.get('Gemini-Api-Key', ''),
+            'gptApiKey': request.headers.get('Gpt-Api-Key', ''),
+            'openaiBaseUrl': request.headers.get('Openai-Base-Url', LLM_DEFAULT_BASE_URL)
+        }
+        provider = config['provider']
+        model = config['model']
+        from ..utils.auth_utils import get_model_api_credentials
+        creds_result = get_model_api_credentials(provider, model, config)
+        if creds_result['error']:
+            log.error(f"Model credential error: {creds_result['error']}")
+            return web.json_response({"error": creds_result['error']}, status=400)
 
         llm_config = []
-        if api_type == 'vertex':
-            # Use Vertex AI endpoint and service account
-            from ..utils.vertex_auth import get_vertex_access_token
-            access_token = get_vertex_access_token(vertex_service_account_path)
-            # Vertex endpoint for Gemini models
-            endpoint = f"https://{vertex_region}-aiplatform.googleapis.com/v1/projects/{vertex_project}/locations/{vertex_region}/publishers/google/models"
-            headers = {"Authorization": f"Bearer {access_token}"}
-            response = requests.get(endpoint, headers=headers)
-            if response.status_code == 200:
-                models = response.json()
-                # Vertex returns 'models' list
-                for model in models.get('models', []):
-                    model_id = model['name'].split('/')[-1]
+        # Gemini/Vertex logic
+        if provider in ['gemini', 'vertex'] and model.startswith('gemini'):
+            if 'vertex_json' in creds_result['credentials']:
+                # Use Vertex AI endpoint and service account
+                from ..utils.vertex_auth import get_vertex_access_token
+                access_token = get_vertex_access_token(creds_result['credentials']['vertex_json'])
+                endpoint = f"https://{creds_result['credentials']['vertex_region']}-aiplatform.googleapis.com/v1/projects/{creds_result['credentials']['vertex_project']}/locations/{creds_result['credentials']['vertex_region']}/publishers/google/models"
+                headers = {"Authorization": f"Bearer {access_token}"}
+                response = requests.get(endpoint, headers=headers)
+                if response.status_code == 200:
+                    models = response.json()
+                    for m in models.get('models', []):
+                        model_id = m['name'].split('/')[-1]
+                        llm_config.append({
+                            "label": model_id,
+                            "name": model_id,
+                            "image_enable": True
+                        })
                     llm_config.append({
-                        "label": model_id,
-                        "name": model_id,
+                        "label": "gemini-2.0-flash",
+                        "name": "gemini-2.0-flash",
                         "image_enable": True
                     })
-                # Always add Gemini 2.0-flash as a cheaper option
-                llm_config.append({
-                    "label": "gemini-2.0-flash",
-                    "name": "gemini-2.0-flash",
-                    "image_enable": True
-                })
-        elif api_type == 'public':
-            # Use public Gemini endpoint
-            endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
-            params = {"key": gemini_api_key}
-            response = requests.get(endpoint, params=params)
-            if response.status_code == 200:
-                models = response.json()
-                for model in models.get('models', []):
+                else:
+                    return web.json_response({"error": f"Vertex API error: {response.text}"}, status=500)
+            elif 'gemini_key' in creds_result['credentials']:
+                endpoint = "https://generativelanguage.googleapis.com/v1beta/models"
+                params = {"key": creds_result['credentials']['gemini_key']}
+                response = requests.get(endpoint, params=params)
+                if response.status_code == 200:
+                    models = response.json()
+                    for m in models.get('models', []):
+                        llm_config.append({
+                            "label": m['name'],
+                            "name": m['name'],
+                            "image_enable": True
+                        })
                     llm_config.append({
-                        "label": model['name'],
-                        "name": model['name'],
+                        "label": "gemini-2.0-flash",
+                        "name": "gemini-2.0-flash",
                         "image_enable": True
                     })
-                # Always add Gemini 2.0-flash as a cheaper option
-                llm_config.append({
-                    "label": "gemini-2.0-flash",
-                    "name": "gemini-2.0-flash",
-                    "image_enable": True
-                })
-        else:
-            # fallback to OpenAI/LMStudio
+                else:
+                    return web.json_response({"error": f"Gemini API error: {response.text}"}, status=500)
+        elif provider == 'chatgpt' and model.startswith('gpt'):
+            # Use OpenAI API
+            openai_api_key = creds_result['credentials']['gpt_key']
+            openai_base_url = config['openaiBaseUrl']
             request_url = f"{openai_base_url}/models"
-            is_lmstudio = is_lmstudio_url(openai_base_url)
-            headers = {}
-            if not is_lmstudio or (is_lmstudio and openai_api_key):
-                headers["Authorization"] = f"Bearer {openai_api_key}"
+            headers = {"Authorization": f"Bearer {openai_api_key}"}
             response = requests.get(request_url, headers=headers)
             if response.status_code == 200:
                 models = response.json()
-                for model in models['data']:
+                for m in models.get('data', []):
                     llm_config.append({
-                        "label": model['id'],
-                        "name": model['id'],
+                        "label": m['id'],
+                        "name": m['id'],
                         "image_enable": True
                     })
+            else:
+                return web.json_response({"error": f"OpenAI API error: {response.text}"}, status=500)
+        else:
+            return web.json_response({"error": "Invalid provider/model selection"}, status=400)
 
-        return web.json_response({
-            "models": llm_config
-        })
+        return web.json_response({"models": llm_config})
     except Exception as e:
         log.error(f"Error in list_models: {str(e)}")
-        return web.json_response({
-            "error": f"Failed to list models: {str(e)}"
-        }, status=500)
+        return web.json_response({"error": f"Failed to list models: {str(e)}"}, status=500)
 
 
 @server.PromptServer.instance.routes.get("/verify_openai_key")

@@ -1,0 +1,6 @@
+# This file allows you to add extra context to the system prompt for ComfyUI Copilot sessions.
+# You can edit this file to customize the initial instructions/context for the model.
+# Example:
+# You are a helpful assistant for image generation and workflow design. Always be concise and friendly.
+
+# Add your custom context below:
